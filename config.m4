@@ -1,7 +1,3 @@
-dnl
-dnl $ Id: $
-dnl
-
 PHP_ARG_ENABLE(clmandelbrot, whether to enable clmandelbrot functions,
 [  --enable-clmandelbrot         Enable clmandelbrot support])
 

@@ -33,8 +33,6 @@
    +----------------------------------------------------------------------+
 */
 
-/* $ Id: $ */ 
-
 #include "php_clmandelbrot.h"
 
 #if HAVE_CLMANDELBROT
@@ -132,7 +130,6 @@ PHP_MINFO_FUNCTION(clmandelbrot)
 	php_info_print_table_start();
 	php_info_print_table_row(2, "Version",PHP_CLMANDELBROT_VERSION " (alpha)");
 	php_info_print_table_row(2, "Released", "2011-10-16");
-	php_info_print_table_row(2, "CVS Revision", "$Id: $");
 	php_info_print_table_row(2, "Authors", "Ryusuke Sekiyama 'rsky0711@gmail.com' (lead)\n");
 	php_info_print_table_end();
 	/* add your stuff here */

@@ -33,8 +33,6 @@
    +----------------------------------------------------------------------+
 */
 
-/* $ Id: $ */ 
-
 #ifndef PHP_CLMANDELBROT_H
 #define PHP_CLMANDELBROT_H
 
