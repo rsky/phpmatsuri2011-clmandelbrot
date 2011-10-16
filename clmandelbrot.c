@@ -25,7 +25,7 @@
    | BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;     |
    | LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER     |
    | CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT   |
-   | LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN    | 
+   | LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN    |
    | ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE      |
    | POSSIBILITY OF SUCH DAMAGE.                                          |
    +----------------------------------------------------------------------+
@@ -34,12 +34,32 @@
 */
 
 #include "php_clmandelbrot.h"
+#ifdef HAVE_GD_BUNDLED
+#include <ext/gd/libgd/gd.h>
+#else
+#include <gd.h>
+#endif
 
-#if HAVE_CLMANDELBROT
+/* {{{ function prototypes */
+
+static PHP_MINFO_FUNCTION(clmandelbrot);
+static PHP_FUNCTION(clmandelblot);
+
+/* }}} */
+
+/* {{{ argument informations */
+
+ZEND_BEGIN_ARG_INFO_EX(clmandelblot_arg_info, ZEND_SEND_BY_VAL, ZEND_RETURN_VALUE, 2)
+  ZEND_ARG_INFO(0, width)
+  ZEND_ARG_INFO(0, height)
+  ZEND_ARG_INFO(0, unit)
+ZEND_END_ARG_INFO()
+
+/* }}} */
 
 /* {{{ clmandelbrot_functions[] */
-function_entry clmandelbrot_functions[] = {
-	PHP_FE(clmandelblot        , clmandelblot_arg_info)
+static zend_function_entry clmandelbrot_functions[] = {
+	PHP_FE(clmandelblot, clmandelblot_arg_info)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
@@ -57,21 +77,16 @@ static zend_module_dep clmandelbrot_deps[] = {
 /* {{{ clmandelbrot_module_entry
  */
 zend_module_entry clmandelbrot_module_entry = {
-#if ZEND_EXTENSION_API_NO >= 220050617
-		STANDARD_MODULE_HEADER_EX, NULL,
-		clmandelbrot_deps,
-#else
-		STANDARD_MODULE_HEADER,
-#endif
-
+	STANDARD_MODULE_HEADER_EX, NULL,
+	clmandelbrot_deps,
 	"clmandelbrot",
 	clmandelbrot_functions,
-	PHP_MINIT(clmandelbrot),     /* Replace with NULL if there is nothing to do at php startup   */ 
-	PHP_MSHUTDOWN(clmandelbrot), /* Replace with NULL if there is nothing to do at php shutdown  */
-	PHP_RINIT(clmandelbrot),     /* Replace with NULL if there is nothing to do at request start */
-	PHP_RSHUTDOWN(clmandelbrot), /* Replace with NULL if there is nothing to do at request end   */
+	NULL,
+	NULL,
+	NULL,
+	NULL,
 	PHP_MINFO(clmandelbrot),
-	PHP_CLMANDELBROT_VERSION, 
+	PHP_CLMANDELBROT_VERSION,
 	STANDARD_MODULE_PROPERTIES
 };
 /* }}} */
@@ -81,50 +96,8 @@ ZEND_GET_MODULE(clmandelbrot)
 #endif
 
 
-/* {{{ PHP_MINIT_FUNCTION */
-PHP_MINIT_FUNCTION(clmandelbrot)
-{
-
-	/* add your stuff here */
-
-	return SUCCESS;
-}
-/* }}} */
-
-
-/* {{{ PHP_MSHUTDOWN_FUNCTION */
-PHP_MSHUTDOWN_FUNCTION(clmandelbrot)
-{
-
-	/* add your stuff here */
-
-	return SUCCESS;
-}
-/* }}} */
-
-
-/* {{{ PHP_RINIT_FUNCTION */
-PHP_RINIT_FUNCTION(clmandelbrot)
-{
-	/* add your stuff here */
-
-	return SUCCESS;
-}
-/* }}} */
-
-
-/* {{{ PHP_RSHUTDOWN_FUNCTION */
-PHP_RSHUTDOWN_FUNCTION(clmandelbrot)
-{
-	/* add your stuff here */
-
-	return SUCCESS;
-}
-/* }}} */
-
-
 /* {{{ PHP_MINFO_FUNCTION */
-PHP_MINFO_FUNCTION(clmandelbrot)
+static PHP_MINFO_FUNCTION(clmandelbrot)
 {
 	php_printf("PHP Matsuri 2011\n");
 	php_info_print_table_start();
@@ -140,28 +113,52 @@ PHP_MINFO_FUNCTION(clmandelbrot)
 
 /* {{{ proto resource clmandelblot(int width, int height[, float unit])
    */
-PHP_FUNCTION(clmandelblot)
+static PHP_FUNCTION(clmandelblot)
 {
-	void * return_res;
-	long return_res_id = -1;
-
 	long width = 0;
 	long height = 0;
 	double unit = 0.0;
 
-
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
+	zval *retval = NULL, *callable, *args, *zwidth, *zheight;
+	int err;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll|d", &width, &height, &unit) == FAILURE) {
 		return;
 	}
 
-	php_error(E_WARNING, "clmandelblot: not yet implemented"); RETURN_FALSE;
+	MAKE_STD_ZVAL(callable);
+	ZVAL_STRING(callable, "imagecreatetruecolor", 1);
+	err = zend_fcall_info_init(callable, 0, &fci, &fcc
+#if ZEND_EXTENSION_API_NO >= 220090626
+		, NULL, NULL
+#endif
+		TSRMLS_CC);
+	if (err != SUCCESS) {
+		zval_ptr_dtor(&callable);
+		RETURN_FALSE;
+	}
 
-	/* RETURN_RESOURCE(...); */
+	MAKE_STD_ZVAL(args);
+	MAKE_STD_ZVAL(zwidth);
+	MAKE_STD_ZVAL(zheight);
+	ZVAL_LONG(zwidth, width);
+	ZVAL_LONG(zheight, height);
+	array_init(args);
+	add_next_index_zval(args, zwidth);
+	add_next_index_zval(args, zheight);
+
+	zend_fcall_info_call(&fci, &fcc, &retval, args TSRMLS_CC);
+	if (retval) {
+		RETVAL_ZVAL(retval, 1, 1);
+	} else {
+		RETVAL_FALSE;
+	}
+	zval_ptr_dtor(&callable);
+	zval_ptr_dtor(&args);
 }
 /* }}} clmandelblot */
-
-#endif /* HAVE_CLMANDELBROT */
 
 
 /*

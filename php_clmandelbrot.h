@@ -35,81 +35,17 @@
 
 #ifndef PHP_CLMANDELBROT_H
 #define PHP_CLMANDELBROT_H
-
-#ifdef  __cplusplus
-extern "C" {
-#endif
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
 #include <php.h>
-
-#ifdef HAVE_CLMANDELBROT
-#define PHP_CLMANDELBROT_VERSION "0.0.1"
-
-
 #include <php_ini.h>
 #include <SAPI.h>
 #include <ext/standard/info.h>
 #include <Zend/zend_extensions.h>
-#ifdef  __cplusplus
-} // extern "C" 
-#endif
-#ifdef  __cplusplus
-extern "C" {
-#endif
+#include <ext/gd/php_gd.h>
 
-extern zend_module_entry clmandelbrot_module_entry;
-#define phpext_clmandelbrot_ptr &clmandelbrot_module_entry
-
-#ifdef PHP_WIN32
-#define PHP_CLMANDELBROT_API __declspec(dllexport)
-#else
-#define PHP_CLMANDELBROT_API
-#endif
-
-PHP_MINIT_FUNCTION(clmandelbrot);
-PHP_MSHUTDOWN_FUNCTION(clmandelbrot);
-PHP_RINIT_FUNCTION(clmandelbrot);
-PHP_RSHUTDOWN_FUNCTION(clmandelbrot);
-PHP_MINFO_FUNCTION(clmandelbrot);
-
-#ifdef ZTS
-#include "TSRM.h"
-#endif
-
-#define FREE_RESOURCE(resource) zend_list_delete(Z_LVAL_P(resource))
-
-#define PROP_GET_LONG(name)    Z_LVAL_P(zend_read_property(_this_ce, _this_zval, #name, strlen(#name), 1 TSRMLS_CC))
-#define PROP_SET_LONG(name, l) zend_update_property_long(_this_ce, _this_zval, #name, strlen(#name), l TSRMLS_CC)
-
-#define PROP_GET_DOUBLE(name)    Z_DVAL_P(zend_read_property(_this_ce, _this_zval, #name, strlen(#name), 1 TSRMLS_CC))
-#define PROP_SET_DOUBLE(name, d) zend_update_property_double(_this_ce, _this_zval, #name, strlen(#name), d TSRMLS_CC)
-
-#define PROP_GET_STRING(name)    Z_STRVAL_P(zend_read_property(_this_ce, _this_zval, #name, strlen(#name), 1 TSRMLS_CC))
-#define PROP_GET_STRLEN(name)    Z_STRLEN_P(zend_read_property(_this_ce, _this_zval, #name, strlen(#name), 1 TSRMLS_CC))
-#define PROP_SET_STRING(name, s) zend_update_property_string(_this_ce, _this_zval, #name, strlen(#name), s TSRMLS_CC)
-#define PROP_SET_STRINGL(name, s, l) zend_update_property_stringl(_this_ce, _this_zval, #name, strlen(#name), s, l TSRMLS_CC)
-
-
-PHP_FUNCTION(clmandelblot);
-#if (PHP_MAJOR_VERSION >= 5)
-ZEND_BEGIN_ARG_INFO_EX(clmandelblot_arg_info, ZEND_SEND_BY_VAL, ZEND_RETURN_VALUE, 2)
-  ZEND_ARG_INFO(0, width)
-  ZEND_ARG_INFO(0, height)
-  ZEND_ARG_INFO(0, unit)
-ZEND_END_ARG_INFO()
-#else /* PHP 4.x */
-#define clmandelblot_arg_info NULL
-#endif
-
-#ifdef  __cplusplus
-} // extern "C" 
-#endif
-
-#endif /* PHP_HAVE_CLMANDELBROT */
+#define PHP_CLMANDELBROT_VERSION "0.0.1"
 
 #endif /* PHP_CLMANDELBROT_H */
 
