@@ -105,8 +105,6 @@ static PHP_MINFO_FUNCTION(clmandelbrot)
 	php_info_print_table_row(2, "Released", "2011-10-16");
 	php_info_print_table_row(2, "Authors", "Ryusuke Sekiyama 'rsky0711@gmail.com' (lead)\n");
 	php_info_print_table_end();
-	/* add your stuff here */
-
 }
 /* }}} */
 
@@ -124,7 +122,8 @@ static PHP_FUNCTION(clmandelblot)
 	zval *retval = NULL, *callable, *args, *zwidth, *zheight;
 	int err;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll|d", &width, &height, &unit) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+			"ll|d", &width, &height, &unit) == FAILURE) {
 		return;
 	}
 
