@@ -1,2 +1,7 @@
 clmandelbrot
 Ryusuke Sekiyama
+
+This is a PHP extension port of the OpenCL example program
+written in Objective-C.
+The original code and the Xcode project can be found at
+http://www.geocities.jp/parastyx/OpenCL/.
