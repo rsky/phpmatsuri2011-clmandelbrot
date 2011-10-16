@@ -39,11 +39,41 @@
 #else
 #include <gd.h>
 #endif
+#include <OpenCL/opencl.h>
+#include "mandelbrot_cl.h"
+
+#define MAX_NUM_DEVICES 10
+
+typedef struct {
+	union {
+		cl_device_id id;
+		cl_device_id list[MAX_NUM_DEVICES];
+	} device;
+	cl_uint          deviceCount;
+	cl_context       context;
+	cl_command_queue queue;
+	cl_program       program;
+	cl_kernel        kernel;
+	cl_mem           output;
+	int width;
+	int height;
+	float centerX;
+	float centerY;
+	float unit;
+	unsigned char *bitmap;
+} clmandelbrot_t;
 
 /* {{{ function prototypes */
 
 static PHP_MINFO_FUNCTION(clmandelbrot);
 static PHP_FUNCTION(clmandelbrot);
+
+static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC);
+static void clm_release(clmandelbrot_t *ctx TSRMLS_DC);
+static int clm_setup_device(clmandelbrot_t *ctx TSRMLS_DC);
+static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC);
+static int clm_execute(clmandelbrot_t *ctx TSRMLS_DC);
+static void clm_draw(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC);
 
 /* }}} */
 
@@ -116,11 +146,15 @@ static PHP_FUNCTION(clmandelbrot)
 	long width = 0;
 	long height = 0;
 	double unit = 0.0;
+	size_t len;
 
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
-	zval *retval = NULL, *callable, *args, *zwidth, *zheight;
+	zval *zim = NULL, *callable, *args, *zwidth, *zheight;
 	int err;
+	gdImagePtr im;
+
+	RETVAL_FALSE;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
 			"ll|d", &width, &height, &unit) == FAILURE) {
@@ -129,14 +163,12 @@ static PHP_FUNCTION(clmandelbrot)
 
 	MAKE_STD_ZVAL(callable);
 	ZVAL_STRING(callable, "imagecreatetruecolor", 1);
-	err = zend_fcall_info_init(callable, 0, &fci, &fcc
-#if ZEND_EXTENSION_API_NO >= 220090626
-		, NULL, NULL
-#endif
-		TSRMLS_CC);
+	err = zend_fcall_info_init(callable, 0, &fci, &fcc,
+	                           NULL, NULL TSRMLS_CC);
+
 	if (err != SUCCESS) {
 		zval_ptr_dtor(&callable);
-		RETURN_FALSE;
+		return;
 	}
 
 	MAKE_STD_ZVAL(args);
@@ -148,16 +180,213 @@ static PHP_FUNCTION(clmandelbrot)
 	add_next_index_zval(args, zwidth);
 	add_next_index_zval(args, zheight);
 
-	zend_fcall_info_call(&fci, &fcc, &retval, args TSRMLS_CC);
-	if (retval) {
-		RETVAL_ZVAL(retval, 1, 1);
-	} else {
-		RETVAL_FALSE;
-	}
+	zend_fcall_info_call(&fci, &fcc, &zim, args TSRMLS_CC);
 	zval_ptr_dtor(&callable);
 	zval_ptr_dtor(&args);
+
+	if (!zim) {
+		return;
+	}
+
+	ZEND_FETCH_RESOURCE_NO_RETURN(im, gdImagePtr, &zim, -1,
+	                              "Image", phpi_get_le_gd());
+	if (im) {
+		size_t len;
+		clmandelbrot_t ctx = { 0 };
+		ctx.width = gdImageSX(im);
+		ctx.height = gdImageSY(im);
+		if (unit > 0.0) {
+			ctx.unit = (float)unit;
+		} else {
+			ctx.unit = 10.0f / (float)(ctx.width + ctx.height);
+		}
+		fprintf(stderr, "%f\n", ctx.unit);
+		len = ctx.width * ctx.height;
+		ctx.bitmap = ecalloc(len, sizeof(unsigned char));
+		if (!ctx.bitmap) {
+			php_error_docref(NULL TSRMLS_CC, E_WARNING,
+			                 "cannot allocate memory");
+		} else {
+			if (clm_process(im, &ctx) == SUCCESS) {
+				RETVAL_ZVAL(zim, 1, 0);
+			}
+		}
+		clm_release(&ctx);
+	}
+	zval_ptr_dtor(&zim);
 }
 /* }}} clmandelbrot */
+
+/* {{{ clm_process() */
+static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC)
+{
+	if (clm_setup_device(ctx TSRMLS_CC) == FAILURE) {
+		return FAILURE;
+	}
+	if (clm_setup_kernel(ctx TSRMLS_CC) == FAILURE) {
+		return FAILURE;
+	}
+	if (clm_execute(ctx TSRMLS_CC) == FAILURE) {
+		return FAILURE;
+	}
+	clm_draw(im, ctx TSRMLS_CC);
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ clm_release() */
+static void clm_release(clmandelbrot_t *ctx TSRMLS_DC)
+{
+	if (ctx->context) {
+		clReleaseContext(ctx->context);
+	}
+	if (ctx->queue) {
+		clReleaseCommandQueue(ctx->queue);
+	}
+	if (ctx->program) {
+		clReleaseProgram(ctx->program);
+	}
+	if (ctx->kernel) {
+		clReleaseKernel(ctx->kernel);
+	}
+	if (ctx->output) {
+		clReleaseMemObject(ctx->output);
+	}
+	if (ctx->bitmap) {
+		efree(ctx->bitmap);
+	}
+}
+/* }}} */
+
+/* {{{ clm_setup_device() */
+static int clm_setup_device(clmandelbrot_t *ctx TSRMLS_DC)
+{
+	cl_int err;
+
+	err = clGetDeviceIDs(NULL, CL_DEVICE_TYPE_ALL, MAX_NUM_DEVICES,
+	                     ctx->device.list, &ctx->deviceCount);
+	if (err != CL_SUCCESS || ctx->deviceCount == 0) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot get device IDs");
+		return FAILURE;
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ clm_setup_kernel() */
+static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC)
+{
+	cl_int err;
+
+	ctx->context = clCreateContext(0, 1, &ctx->device.id, NULL, NULL, &err);
+	if (!ctx->context) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create context");
+		return FAILURE;
+	}
+
+	ctx->queue = clCreateCommandQueue(ctx->context, ctx->device.id, 0, &err);
+	if (!ctx->queue) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create command queue");
+		return FAILURE;
+	}
+
+	ctx->program = clCreateProgramWithSource(ctx->context, 1, &Mandelbrot_cl, NULL, &err);
+	if (err != CL_SUCCESS) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create program with source");
+		return FAILURE;
+	}
+
+	// compile
+	err = clBuildProgram(ctx->program, 0, NULL, NULL, NULL, NULL);
+	if (err != CL_SUCCESS) {
+		size_t len;
+		char info[2048];
+
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error: Failed to build program executable");
+		clGetProgramBuildInfo(ctx->program, ctx->device.id,
+		                      CL_PROGRAM_BUILD_LOG, sizeof(info), info, &len);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "%s", info);
+		return FAILURE;
+	}
+
+	ctx->kernel = clCreateKernel(ctx->program, "Mandelbrot", &err);
+	if (!ctx->kernel || err != CL_SUCCESS) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create kernel");
+		return FAILURE;
+	}
+
+	size_t len = sizeof(unsigned char) * ctx->width * ctx->height;
+	ctx->output = clCreateBuffer(ctx->context, CL_MEM_WRITE_ONLY, len, NULL, NULL);
+	if (!ctx->output) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create buffer");
+		return FAILURE;
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ clm_execute() */
+static int clm_execute(clmandelbrot_t *ctx TSRMLS_DC)
+{
+	cl_int err;
+
+	err = CL_SUCCESS;
+	err |= clSetKernelArg(ctx->kernel, 0, sizeof(cl_mem), &ctx->output);
+	err |= clSetKernelArg(ctx->kernel, 1, sizeof(ctx->width), &ctx->width);
+	err |= clSetKernelArg(ctx->kernel, 2, sizeof(ctx->height), &ctx->height);
+	err |= clSetKernelArg(ctx->kernel, 3, sizeof(ctx->centerX), &ctx->centerX);
+	err |= clSetKernelArg(ctx->kernel, 4, sizeof(ctx->centerY), &ctx->centerY);
+	err |= clSetKernelArg(ctx->kernel, 5, sizeof(ctx->unit), &ctx->unit);
+	if (err != CL_SUCCESS) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot set kernel argument(s)");
+		return FAILURE;
+	}
+
+	size_t local;
+	err = clGetKernelWorkGroupInfo(ctx->kernel, ctx->device.id,
+	                               CL_KERNEL_WORK_GROUP_SIZE,
+	                               sizeof(local), &local, NULL);
+	if (err != CL_SUCCESS) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot get kernel work group info");
+		return FAILURE;
+	}
+
+	size_t global = sizeof(unsigned char) * ctx->width * ctx->height;
+	err = clEnqueueNDRangeKernel(ctx->queue, ctx->kernel, 1, NULL,
+	                             &global, &local, 0, NULL, NULL);
+	if (err) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot enqueue ND range kernel");
+		return FAILURE;
+	}
+
+	clFinish(ctx->queue);
+
+	size_t len = sizeof(unsigned char) * ctx->width * ctx->height;
+	err = clEnqueueReadBuffer(ctx->queue, ctx->output, CL_TRUE, 0,
+	                          len, ctx->bitmap, 0, NULL, NULL);
+	if (err != CL_SUCCESS) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot enqueue read buffer");
+		return FAILURE;
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ clm_draw() */
+static void clm_draw(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC)
+{
+	int x, y;
+	for (y = 0; y < ctx->height; y++) {
+		for (x = 0; x < ctx->width; x++) {
+			int c = (int)ctx->bitmap[x + y * ctx->height];
+			im->tpixels[y][x] = gdTrueColor(c, c, c);
+		}
+	}
+}
+/* }}} */
 
 /*
  * Local variables:
