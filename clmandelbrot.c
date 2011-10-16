@@ -200,7 +200,6 @@ static PHP_FUNCTION(clmandelbrot)
 		} else {
 			ctx.unit = 10.0f / (float)(ctx.width + ctx.height);
 		}
-		fprintf(stderr, "%f\n", ctx.unit);
 		len = ctx.width * ctx.height;
 		ctx.bitmap = ecalloc(len, sizeof(unsigned char));
 		if (!ctx.bitmap) {
