@@ -1,8 +1,8 @@
 --TEST--
-clmandelblot() function
+clmandelbrot() function
 --FILE--
 <?php
-$im = clmandelblot(100, 100);
+$im = clmandelbrot(100, 100);
 if (!is_resource($im)) {
     echo 'didn\'t return resource';
 } else {

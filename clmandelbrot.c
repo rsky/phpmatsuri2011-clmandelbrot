@@ -43,13 +43,13 @@
 /* {{{ function prototypes */
 
 static PHP_MINFO_FUNCTION(clmandelbrot);
-static PHP_FUNCTION(clmandelblot);
+static PHP_FUNCTION(clmandelbrot);
 
 /* }}} */
 
 /* {{{ argument informations */
 
-ZEND_BEGIN_ARG_INFO_EX(clmandelblot_arg_info, ZEND_SEND_BY_VAL, ZEND_RETURN_VALUE, 2)
+ZEND_BEGIN_ARG_INFO_EX(clmandelbrot_arg_info, ZEND_SEND_BY_VAL, ZEND_RETURN_VALUE, 2)
   ZEND_ARG_INFO(0, width)
   ZEND_ARG_INFO(0, height)
   ZEND_ARG_INFO(0, unit)
@@ -59,7 +59,7 @@ ZEND_END_ARG_INFO()
 
 /* {{{ clmandelbrot_functions[] */
 static zend_function_entry clmandelbrot_functions[] = {
-	PHP_FE(clmandelblot, clmandelblot_arg_info)
+	PHP_FE(clmandelbrot, clmandelbrot_arg_info)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
@@ -109,9 +109,9 @@ static PHP_MINFO_FUNCTION(clmandelbrot)
 /* }}} */
 
 
-/* {{{ proto resource clmandelblot(int width, int height[, float unit])
+/* {{{ proto resource clmandelbrot(int width, int height[, float unit])
    */
-static PHP_FUNCTION(clmandelblot)
+static PHP_FUNCTION(clmandelbrot)
 {
 	long width = 0;
 	long height = 0;
@@ -157,8 +157,7 @@ static PHP_FUNCTION(clmandelblot)
 	zval_ptr_dtor(&callable);
 	zval_ptr_dtor(&args);
 }
-/* }}} clmandelblot */
-
+/* }}} clmandelbrot */
 
 /*
  * Local variables:
