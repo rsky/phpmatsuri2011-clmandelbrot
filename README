@@ -27,6 +27,14 @@ bit more complicated but this way your custom code will always be in the
 generated code no matter how often you rerun CodeGen_PECL.
 
 
+BUILDING ON MAC OS X.
+====================
+
+Before compile, create a symbolic link by the following command:
+
+$ ln -s /System/Library/Frameworks/OpenCL.framework/OpenCL libOpenCL.dylib
+
+
 BUILDING ON UNIX etc.
 =====================
 
@@ -37,7 +45,6 @@ To compile your new extension, you will have to execute the following steps:
 3.  $ make
 4.  $ make test
 5.  $ [sudo] make install
-
 
 
 BUILDING ON WINDOWS
