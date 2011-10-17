@@ -72,6 +72,7 @@ static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC);
 static void clm_release(clmandelbrot_t *ctx TSRMLS_DC);
 static int clm_setup_device(clmandelbrot_t *ctx TSRMLS_DC);
 static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC);
+static int clm_setup_queue(clmandelbrot_t *ctx TSRMLS_DC);
 static int clm_execute(clmandelbrot_t *ctx TSRMLS_DC);
 static void clm_draw(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC);
 
@@ -225,6 +226,9 @@ static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC)
 	if (clm_setup_kernel(ctx TSRMLS_CC) == FAILURE) {
 		return FAILURE;
 	}
+	if (clm_setup_queue(ctx TSRMLS_CC) == FAILURE) {
+		return FAILURE;
+	}
 	if (clm_execute(ctx TSRMLS_CC) == FAILURE) {
 		return FAILURE;
 	}
@@ -260,7 +264,7 @@ static void clm_release(clmandelbrot_t *ctx TSRMLS_DC)
 /* {{{ clm_setup_device() */
 static int clm_setup_device(clmandelbrot_t *ctx TSRMLS_DC)
 {
-	cl_int err;
+	cl_int err = CL_SUCCESS;
 
 	err = clGetDeviceIDs(NULL, CL_DEVICE_TYPE_ALL, MAX_NUM_DEVICES,
 	                     ctx->device.list, &ctx->deviceCount);
@@ -276,17 +280,11 @@ static int clm_setup_device(clmandelbrot_t *ctx TSRMLS_DC)
 /* {{{ clm_setup_kernel() */
 static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC)
 {
-	cl_int err;
+	cl_int err = CL_SUCCESS;
 
 	ctx->context = clCreateContext(0, 1, &ctx->device.id, NULL, NULL, &err);
 	if (!ctx->context) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create context");
-		return FAILURE;
-	}
-
-	ctx->queue = clCreateCommandQueue(ctx->context, ctx->device.id, 0, &err);
-	if (!ctx->queue) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create command queue");
 		return FAILURE;
 	}
 
@@ -315,6 +313,21 @@ static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC)
 		return FAILURE;
 	}
 
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ clm_setup_queue() */
+static int clm_setup_queue(clmandelbrot_t *ctx TSRMLS_DC)
+{
+	cl_int err = CL_SUCCESS;
+
+	ctx->queue = clCreateCommandQueue(ctx->context, ctx->device.id, 0, &err);
+	if (!ctx->queue) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create command queue");
+		return FAILURE;
+	}
+
 	size_t len = sizeof(unsigned char) * ctx->width * ctx->height;
 	ctx->output = clCreateBuffer(ctx->context, CL_MEM_WRITE_ONLY, len, NULL, NULL);
 	if (!ctx->output) {
@@ -329,9 +342,8 @@ static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC)
 /* {{{ clm_execute() */
 static int clm_execute(clmandelbrot_t *ctx TSRMLS_DC)
 {
-	cl_int err;
+	cl_int err = CL_SUCCESS;
 
-	err = CL_SUCCESS;
 	err |= clSetKernelArg(ctx->kernel, 0, sizeof(cl_mem), &ctx->output);
 	err |= clSetKernelArg(ctx->kernel, 1, sizeof(ctx->width), &ctx->width);
 	err |= clSetKernelArg(ctx->kernel, 2, sizeof(ctx->height), &ctx->height);
@@ -352,7 +364,7 @@ static int clm_execute(clmandelbrot_t *ctx TSRMLS_DC)
 		return FAILURE;
 	}
 
-	size_t global = sizeof(unsigned char) * ctx->width * ctx->height;
+	size_t global = ctx->width * ctx->height;
 	err = clEnqueueNDRangeKernel(ctx->queue, ctx->kernel, 1, NULL,
 	                             &global, &local, 0, NULL, NULL);
 	if (err) {
