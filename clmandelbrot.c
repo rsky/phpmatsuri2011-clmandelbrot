@@ -46,11 +46,9 @@
 /* {{{ type definitions */
 
 typedef struct {
-	union {
-		cl_device_id id;
-		cl_device_id list[MAX_NUM_DEVICES];
-	} device;
+	cl_uint          deviceId;
 	cl_uint          deviceCount;
+	cl_device_id     deviceList[MAX_NUM_DEVICES];
 	cl_context       context;
 	cl_command_queue queue;
 	cl_program       program;
@@ -186,6 +184,7 @@ static zval *clm_get_platform_info(cl_platform_id device TSRMLS_DC);
 static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC);
 static void clm_release(clmandelbrot_t *ctx TSRMLS_DC);
 static int clm_setup_device(clmandelbrot_t *ctx TSRMLS_DC);
+static int clm_check_device(clmandelbrot_t *ctx TSRMLS_DC);
 static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC);
 static int clm_setup_queue(clmandelbrot_t *ctx TSRMLS_DC);
 static int clm_execute(clmandelbrot_t *ctx TSRMLS_DC);
@@ -196,9 +195,10 @@ static void clm_draw(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC);
 /* {{{ argument informations */
 
 ZEND_BEGIN_ARG_INFO_EX(clmandelbrot_arg_info, ZEND_SEND_BY_VAL, ZEND_RETURN_VALUE, 2)
-  ZEND_ARG_INFO(0, width)
-  ZEND_ARG_INFO(0, height)
-  ZEND_ARG_INFO(0, unit)
+	ZEND_ARG_INFO(0, width)
+	ZEND_ARG_INFO(0, height)
+	ZEND_ARG_INFO(0, unit)
+	ZEND_ARG_INFO(0, device)
 ZEND_END_ARG_INFO()
 
 /* }}} */
@@ -261,6 +261,7 @@ static PHP_FUNCTION(clmandelbrot)
 	long width = 0;
 	long height = 0;
 	double unit = 0.0;
+	long device = 0;
 
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
@@ -271,7 +272,7 @@ static PHP_FUNCTION(clmandelbrot)
 	RETVAL_FALSE;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-			"ll|d", &width, &height, &unit) == FAILURE) {
+			"ll|dl", &width, &height, &unit, &device) == FAILURE) {
 		return;
 	}
 
@@ -307,6 +308,7 @@ static PHP_FUNCTION(clmandelbrot)
 	if (im) {
 		size_t len;
 		clmandelbrot_t ctx = { 0 };
+		ctx.deviceId = (cl_uint)device;
 		ctx.width = gdImageSX(im);
 		ctx.height = gdImageSY(im);
 		if (unit > 0.0) {
@@ -350,7 +352,7 @@ static PHP_FUNCTION(cl_get_devices)
 	array_init(return_value);
 
 	for (i = 0; i < ctx.deviceCount; i++) {
-		zval *zinfo = clm_get_device_info(ctx.device.list[i] TSRMLS_CC);
+		zval *zinfo = clm_get_device_info(ctx.deviceList[i] TSRMLS_CC);
 		add_next_index_zval(return_value, zinfo);
 	}
 }
@@ -514,6 +516,9 @@ static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC)
 	if (clm_setup_device(ctx TSRMLS_CC) == FAILURE) {
 		return FAILURE;
 	}
+	if (clm_check_device(ctx TSRMLS_CC) == FAILURE) {
+		return FAILURE;
+	}
 	if (clm_setup_kernel(ctx TSRMLS_CC) == FAILURE) {
 		return FAILURE;
 	}
@@ -558,9 +563,38 @@ static int clm_setup_device(clmandelbrot_t *ctx TSRMLS_DC)
 	cl_int err = CL_SUCCESS;
 
 	err = clGetDeviceIDs(NULL, CL_DEVICE_TYPE_ALL, MAX_NUM_DEVICES,
-	                     ctx->device.list, &ctx->deviceCount);
-	if (err != CL_SUCCESS || ctx->deviceCount == 0) {
+	                     ctx->deviceList, &ctx->deviceCount);
+	if (err != CL_SUCCESS) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot get device IDs");
+		return FAILURE;
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+
+/* {{{ clm_check_device() */
+static int clm_check_device(clmandelbrot_t *ctx TSRMLS_DC)
+{
+	cl_int err = CL_SUCCESS;
+	cl_bool available = 0;
+
+	if (ctx->deviceId >= ctx->deviceCount) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "device #%u is not supported", ctx->deviceId);
+		return FAILURE;
+	}
+
+	err = clGetDeviceInfo(ctx->deviceList[ctx->deviceId], CL_DEVICE_AVAILABLE,
+	                      sizeof(available), &available, NULL);
+	if (err != CL_SUCCESS || !available) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "device #%u is not available", ctx->deviceId);
+		return FAILURE;
+	}
+
+	err = clGetDeviceInfo(ctx->deviceList[ctx->deviceId], CL_DEVICE_COMPILER_AVAILABLE,
+	                      sizeof(available), &available, NULL);
+	if (err != CL_SUCCESS || !available) {
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "compiler is not available on device #%u", ctx->deviceId);
 		return FAILURE;
 	}
 
@@ -573,7 +607,7 @@ static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC)
 {
 	cl_int err = CL_SUCCESS;
 
-	ctx->context = clCreateContext(0, 1, &ctx->device.id, NULL, NULL, &err);
+	ctx->context = clCreateContext(0, 1, &ctx->deviceList[ctx->deviceId], NULL, NULL, &err);
 	if (!ctx->context) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create context");
 		return FAILURE;
@@ -592,7 +626,7 @@ static int clm_setup_kernel(clmandelbrot_t *ctx TSRMLS_DC)
 		char info[2048];
 
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Error: Failed to build program executable");
-		clGetProgramBuildInfo(ctx->program, ctx->device.id,
+		clGetProgramBuildInfo(ctx->program, ctx->deviceList[ctx->deviceId],
 		                      CL_PROGRAM_BUILD_LOG, sizeof(info), info, &len);
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "%s", info);
 		return FAILURE;
@@ -613,7 +647,7 @@ static int clm_setup_queue(clmandelbrot_t *ctx TSRMLS_DC)
 {
 	cl_int err = CL_SUCCESS;
 
-	ctx->queue = clCreateCommandQueue(ctx->context, ctx->device.id, 0, &err);
+	ctx->queue = clCreateCommandQueue(ctx->context, ctx->deviceList[ctx->deviceId], 0, &err);
 	if (!ctx->queue) {
 		php_error_docref(NULL TSRMLS_CC, E_WARNING, "cannot create command queue");
 		return FAILURE;
@@ -647,7 +681,7 @@ static int clm_execute(clmandelbrot_t *ctx TSRMLS_DC)
 	}
 
 	size_t local;
-	err = clGetKernelWorkGroupInfo(ctx->kernel, ctx->device.id,
+	err = clGetKernelWorkGroupInfo(ctx->kernel, ctx->deviceList[ctx->deviceId],
 	                               CL_KERNEL_WORK_GROUP_SIZE,
 	                               sizeof(local), &local, NULL);
 	if (err != CL_SUCCESS) {
