@@ -40,9 +40,10 @@
 #include <gd.h>
 #endif
 #include <OpenCL/opencl.h>
-#include "mandelbrot_cl.h"
 
 #define MAX_NUM_DEVICES 10
+
+/* {{{ type definitions */
 
 typedef struct {
 	union {
@@ -63,10 +64,124 @@ typedef struct {
 	unsigned char *bitmap;
 } clmandelbrot_t;
 
+typedef enum {
+	PARAM_TYPE_BITFIELD = 0,
+	PARAM_TYPE_BOOL,
+	PARAM_TYPE_SIZE,
+	PARAM_TYPE_UINT,
+	PARAM_TYPE_ULONG,
+	PARAM_TYPE_STRING,
+	PARAM_TYPE_PLATFORM,
+	PARAM_TYPE_MAX_WORK_ITEM_SIZES,
+} param_type_t;
+
+typedef struct {
+	const char *key;
+	cl_device_info name;
+	param_type_t type;
+} device_info_param_t;
+
+typedef struct {
+	const char *key;
+	cl_platform_info name;
+} platform_info_param_t;
+
+/* }}} */
+
+/* {{{ globals */
+
+#include "mandelbrot_cl.h"
+
+static const device_info_param_t device_info_list[] = {
+	{ "type",                          CL_DEVICE_TYPE,                          PARAM_TYPE_BITFIELD  },
+	{ "vendor_id",                     CL_DEVICE_VENDOR_ID,                     PARAM_TYPE_UINT      },
+	{ "max_compute_units",             CL_DEVICE_MAX_COMPUTE_UNITS,             PARAM_TYPE_UINT      },
+	{ "max_work_item_dimensions",      CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS,      PARAM_TYPE_UINT      },
+	{ "max_work_group_size",           CL_DEVICE_MAX_WORK_GROUP_SIZE,           PARAM_TYPE_SIZE      },
+	{ "max_work_item_sizes",           CL_DEVICE_MAX_WORK_ITEM_SIZES, PARAM_TYPE_MAX_WORK_ITEM_SIZES },
+	{ "preferred_vector_width_char",   CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR,   PARAM_TYPE_SIZE      },
+	{ "preferred_vector_width_short",  CL_DEVICE_PREFERRED_VECTOR_WIDTH_SHORT,  PARAM_TYPE_SIZE      },
+	{ "preferred_vector_width_int",    CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT,    PARAM_TYPE_SIZE      },
+	{ "preferred_vector_width_long",   CL_DEVICE_PREFERRED_VECTOR_WIDTH_LONG,   PARAM_TYPE_SIZE      },
+	{ "preferred_vector_width_float",  CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT,  PARAM_TYPE_SIZE      },
+	{ "preferred_vector_width_double", CL_DEVICE_PREFERRED_VECTOR_WIDTH_DOUBLE, PARAM_TYPE_SIZE      },
+#ifdef CL_DEVICE_PREFERRED_VECTOR_WIDTH_HALF /* OpenCL 1.1 */
+	{ "preferred_vector_width_half",   CL_DEVICE_PREFERRED_VECTOR_WIDTH_HALF,   PARAM_TYPE_UINT      },
+	{ "native_vector_width_char",      CL_DEVICE_NATIVE_VECTOR_WIDTH_CHAR,      PARAM_TYPE_UINT      },
+	{ "native_vector_width_short",     CL_DEVICE_NATIVE_VECTOR_WIDTH_SHORT,     PARAM_TYPE_UINT      },
+	{ "native_vector_width_int",       CL_DEVICE_NATIVE_VECTOR_WIDTH_INT,       PARAM_TYPE_UINT      },
+	{ "native_vector_width_long",      CL_DEVICE_NATIVE_VECTOR_WIDTH_LONG,      PARAM_TYPE_UINT      },
+	{ "native_vector_width_float",     CL_DEVICE_NATIVE_VECTOR_WIDTH_FLOAT,     PARAM_TYPE_UINT      },
+	{ "native_vector_width_double",    CL_DEVICE_NATIVE_VECTOR_WIDTH_DOUBLE,    PARAM_TYPE_UINT      },
+	{ "native_vector_width_half",      CL_DEVICE_NATIVE_VECTOR_WIDTH_HALF,      PARAM_TYPE_UINT      },
+#endif
+	{ "max_clock_frequency",           CL_DEVICE_MAX_CLOCK_FREQUENCY,           PARAM_TYPE_UINT      },
+	{ "address_bits",                  CL_DEVICE_ADDRESS_BITS,                  PARAM_TYPE_UINT      },
+	{ "max_read_image_args",           CL_DEVICE_MAX_READ_IMAGE_ARGS,           PARAM_TYPE_UINT      },
+	{ "max_write_image_args",          CL_DEVICE_MAX_WRITE_IMAGE_ARGS,          PARAM_TYPE_UINT      },
+	{ "max_mem_alloc_size",            CL_DEVICE_MAX_MEM_ALLOC_SIZE,            PARAM_TYPE_ULONG     },
+	{ "image2d_max_width",             CL_DEVICE_IMAGE2D_MAX_WIDTH,             PARAM_TYPE_SIZE      },
+	{ "image2d_max_height",            CL_DEVICE_IMAGE2D_MAX_HEIGHT,            PARAM_TYPE_SIZE      },
+	{ "image3d_max_width",             CL_DEVICE_IMAGE3D_MAX_WIDTH,             PARAM_TYPE_SIZE      },
+	{ "image3d_max_height",            CL_DEVICE_IMAGE3D_MAX_HEIGHT,            PARAM_TYPE_SIZE      },
+	{ "image3d_max_depth",             CL_DEVICE_IMAGE3D_MAX_DEPTH,             PARAM_TYPE_SIZE      },
+	{ "image_support",                 CL_DEVICE_IMAGE_SUPPORT,                 PARAM_TYPE_BOOL      },
+	{ "max_parameter_size",            CL_DEVICE_MAX_PARAMETER_SIZE,            PARAM_TYPE_SIZE      },
+	{ "max_samplers",                  CL_DEVICE_MAX_SAMPLERS,                  PARAM_TYPE_UINT      },
+	{ "mem_base_addr_align",           CL_DEVICE_MEM_BASE_ADDR_ALIGN,           PARAM_TYPE_UINT      },
+	{ "min_data_type_align_size",      CL_DEVICE_MIN_DATA_TYPE_ALIGN_SIZE,      PARAM_TYPE_UINT      },
+	{ "single_fp_config",              CL_DEVICE_SINGLE_FP_CONFIG,              PARAM_TYPE_BITFIELD  },
+	{ "global_mem_cache_type",         CL_DEVICE_GLOBAL_MEM_CACHE_TYPE,         PARAM_TYPE_UINT      },
+	{ "global_mem_cacheline_size",     CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE,     PARAM_TYPE_UINT      },
+	{ "global_mem_cache_size",         CL_DEVICE_GLOBAL_MEM_CACHE_SIZE,         PARAM_TYPE_ULONG     },
+	{ "global_mem_size",               CL_DEVICE_GLOBAL_MEM_SIZE,               PARAM_TYPE_ULONG     },
+	{ "max_constant_buffer_size",      CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE,      PARAM_TYPE_ULONG     },
+	{ "max_constant_args",             CL_DEVICE_MAX_CONSTANT_ARGS,             PARAM_TYPE_UINT      },
+	{ "local_mem_type",                CL_DEVICE_LOCAL_MEM_TYPE,                PARAM_TYPE_UINT      },
+	{ "local_mem_size",                CL_DEVICE_LOCAL_MEM_SIZE,                PARAM_TYPE_ULONG     },
+	{ "error_correction_support",      CL_DEVICE_ERROR_CORRECTION_SUPPORT,      PARAM_TYPE_BOOL      },
+	{ "profiling_timer_resolution",    CL_DEVICE_PROFILING_TIMER_RESOLUTION,    PARAM_TYPE_SIZE      },
+	{ "endian_little",                 CL_DEVICE_ENDIAN_LITTLE,                 PARAM_TYPE_BOOL      },
+	{ "available",                     CL_DEVICE_AVAILABLE,                     PARAM_TYPE_BOOL      },
+	{ "compiler_available",            CL_DEVICE_COMPILER_AVAILABLE,            PARAM_TYPE_BOOL      },
+	{ "execution_capabilities",        CL_DEVICE_EXECUTION_CAPABILITIES,        PARAM_TYPE_BITFIELD  },
+	{ "queue_properties",              CL_DEVICE_QUEUE_PROPERTIES,              PARAM_TYPE_BITFIELD  },
+	{ "name",                          CL_DEVICE_NAME,                          PARAM_TYPE_STRING    },
+	{ "vendor",                        CL_DEVICE_VENDOR,                        PARAM_TYPE_STRING    },
+	{ "driver_version",                CL_DRIVER_VERSION,                       PARAM_TYPE_STRING    },
+	{ "profile",                       CL_DEVICE_PROFILE,                       PARAM_TYPE_STRING    },
+	{ "version",                       CL_DEVICE_VERSION,                       PARAM_TYPE_STRING    },
+	{ "extensions",                    CL_DEVICE_EXTENSIONS,                    PARAM_TYPE_STRING    },
+	{ "platform",                      CL_DEVICE_PLATFORM,                      PARAM_TYPE_PLATFORM  },
+ 	{ "double_fp_config",              CL_DEVICE_DOUBLE_FP_CONFIG,              PARAM_TYPE_BITFIELD  },
+ 	{ "half_fp_config",                CL_DEVICE_HALF_FP_CONFIG,                PARAM_TYPE_BITFIELD  },
+#ifdef CL_DEVICE_HOST_UNIFIED_MEMORY /* OpenCL 1.1 */
+	{ "host_unified_memory",           CL_DEVICE_HOST_UNIFIED_MEMORY,           PARAM_TYPE_BOOL      },
+	{ "opencl_c_version",              CL_DEVICE_OPENCL_C_VERSION,              PARAM_TYPE_STRING    },
+#endif
+	{ NULL, 0, 0 }
+};
+
+static const platform_info_param_t platform_info_list[] = {
+	{ "profile",    CL_PLATFORM_PROFILE    },
+	{ "version",    CL_PLATFORM_VERSION    },
+	{ "name",       CL_PLATFORM_NAME       },
+	{ "vendor",     CL_PLATFORM_VENDOR     },
+	{ "extensions", CL_PLATFORM_EXTENSIONS },
+	{ NULL, 0 }
+};
+
+/* }}} */
+
 /* {{{ function prototypes */
 
 static PHP_MINFO_FUNCTION(clmandelbrot);
+
 static PHP_FUNCTION(clmandelbrot);
+static PHP_FUNCTION(cl_get_devices);
+
+static zval *clm_get_device_info(cl_device_id device TSRMLS_DC);
+static zval *clm_get_platform_info(cl_platform_id device TSRMLS_DC);
 
 static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC);
 static void clm_release(clmandelbrot_t *ctx TSRMLS_DC);
@@ -91,6 +206,7 @@ ZEND_END_ARG_INFO()
 /* {{{ clmandelbrot_functions[] */
 static zend_function_entry clmandelbrot_functions[] = {
 	PHP_FE(clmandelbrot, clmandelbrot_arg_info)
+	PHP_FE(cl_get_devices, NULL)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
@@ -126,7 +242,6 @@ zend_module_entry clmandelbrot_module_entry = {
 ZEND_GET_MODULE(clmandelbrot)
 #endif
 
-
 /* {{{ PHP_MINFO_FUNCTION */
 static PHP_MINFO_FUNCTION(clmandelbrot)
 {
@@ -139,7 +254,6 @@ static PHP_MINFO_FUNCTION(clmandelbrot)
 }
 /* }}} */
 
-
 /* {{{ proto resource clmandelbrot(int width, int height[, float unit])
    */
 static PHP_FUNCTION(clmandelbrot)
@@ -147,7 +261,6 @@ static PHP_FUNCTION(clmandelbrot)
 	long width = 0;
 	long height = 0;
 	double unit = 0.0;
-	size_t len;
 
 	zend_fcall_info fci;
 	zend_fcall_info_cache fcc;
@@ -216,6 +329,184 @@ static PHP_FUNCTION(clmandelbrot)
 	zval_ptr_dtor(&zim);
 }
 /* }}} clmandelbrot */
+
+/* {{{ proto array cl_get_devices(void)
+   */
+static PHP_FUNCTION(cl_get_devices)
+{
+	clmandelbrot_t ctx = { 0 };
+	cl_uint i = 0;
+
+	RETVAL_FALSE;
+
+	if (ZEND_NUM_ARGS() != 0) {
+		WRONG_PARAM_COUNT;
+	}
+
+	if (clm_setup_device(&ctx TSRMLS_CC) == FAILURE) {
+		return;
+	}
+
+	array_init(return_value);
+
+	for (i = 0; i < ctx.deviceCount; i++) {
+		zval *zinfo = clm_get_device_info(ctx.device.list[i] TSRMLS_CC);
+		add_next_index_zval(return_value, zinfo);
+	}
+}
+/* }}} cl_get_devices */
+
+/* {{{ clm_get_device_info() */
+static zval *clm_get_device_info(cl_device_id device TSRMLS_DC)
+{
+	const device_info_param_t *param = device_info_list;
+	cl_int err = CL_SUCCESS;
+	char buf[1024] = { 0 };
+	size_t len = 0;
+	cl_uint max_work_item_dimensions = 0;
+	zval *zinfo;
+
+	err = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS,
+	                      sizeof(max_work_item_dimensions),
+	                      &max_work_item_dimensions, NULL);
+	if (err != CL_SUCCESS) {
+		max_work_item_dimensions = 0;
+	}
+
+	MAKE_STD_ZVAL(zinfo);
+	array_init_size(zinfo, 64);
+
+	while (param->key != NULL) {
+		switch (param->type) {
+			case PARAM_TYPE_BITFIELD: {
+				cl_bitfield val = 0;
+				err = clGetDeviceInfo(device, param->name, sizeof(val), &val, NULL);
+				if (err == CL_SUCCESS) {
+					long lval = (long)val;
+					add_assoc_long(zinfo, param->key, lval);
+				}
+			}
+			break;
+
+			case PARAM_TYPE_BOOL: {
+				cl_bool val = 0;
+				err = clGetDeviceInfo(device, param->name, sizeof(val), &val, NULL);
+				if (err == CL_SUCCESS) {
+					zend_bool bval = (zend_bool)val;
+					add_assoc_bool(zinfo, param->key, bval);
+				}
+			}
+			break;
+
+			case PARAM_TYPE_SIZE: {
+				size_t val = 0;
+				err = clGetDeviceInfo(device, param->name, sizeof(val), &val, NULL);
+				if (err == CL_SUCCESS) {
+					long lval = (long)val;
+					add_assoc_long(zinfo, param->key, lval);
+				}
+			}
+			break;
+
+			case PARAM_TYPE_UINT: {
+				cl_uint val = 0;
+				err = clGetDeviceInfo(device, param->name, sizeof(val), &val, NULL);
+				if (err == CL_SUCCESS) {
+					long lval = (long)val;
+					add_assoc_long(zinfo, param->key, lval);
+				}
+			}
+			break;
+
+			case PARAM_TYPE_ULONG: {
+				cl_ulong val = 0;
+				err = clGetDeviceInfo(device, param->name, sizeof(val), &val, NULL);
+				if (err == CL_SUCCESS) {
+					long lval = (long)val;
+					add_assoc_long(zinfo, param->key, lval);
+				}
+			}
+			break;
+
+			case PARAM_TYPE_STRING: {
+				err = clGetDeviceInfo(device, param->name, sizeof(buf), buf, &len);
+				if (err == CL_SUCCESS) {
+					add_assoc_stringl(zinfo, param->key, buf, len, 1);
+				}
+			}
+			break;
+
+			case PARAM_TYPE_PLATFORM: {
+				cl_platform_id platform;
+				err = clGetDeviceInfo(device, param->name, sizeof(platform), &platform, NULL);
+				if (err == CL_SUCCESS) {
+					zval *pinfo = clm_get_platform_info(platform TSRMLS_CC);
+					add_assoc_zval(zinfo, param->key, pinfo);
+				}
+			}
+			break;
+
+			case PARAM_TYPE_MAX_WORK_ITEM_SIZES: {
+				size_t siz = sizeof(size_t) * max_work_item_dimensions;
+				size_t *sizes = ecalloc(max_work_item_dimensions, sizeof(size_t));
+				if (!sizes) {
+					break;
+				}
+
+				err = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_SIZES, siz, sizes, NULL);
+				if (err == CL_SUCCESS) {
+					cl_uint i;
+					zval *zsizes;
+					MAKE_STD_ZVAL(zsizes);
+					array_init_size(zsizes, max_work_item_dimensions);
+					for (i = 0; i < max_work_item_dimensions; i++) {
+						long lval = (long)sizes[i];
+						add_next_index_long(zsizes, lval);
+					}
+					add_assoc_zval(zinfo, param->key, zsizes);
+				}
+
+				efree(sizes);
+			}
+			break;
+		}
+
+		if (err != CL_SUCCESS) {
+			add_assoc_null(zinfo, param->key);
+		}
+
+		param++;
+	}
+
+	return zinfo;
+}
+/* }}} */
+
+/* {{{ clm_get_platform_info() */
+static zval *clm_get_platform_info(cl_platform_id platform TSRMLS_DC)
+{
+	const platform_info_param_t *param = platform_info_list;
+	cl_int err = CL_SUCCESS;
+	char buf[1024] = { 0 };
+	size_t len = 0;
+	zval *zinfo;
+
+	MAKE_STD_ZVAL(zinfo);
+	array_init_size(zinfo, 8);
+
+	while (param->key != NULL) {
+		err = clGetPlatformInfo(platform, param->name, sizeof(buf), buf, &len);
+		if (err == CL_SUCCESS) {
+			add_assoc_stringl(zinfo, param->key, buf, len, 1);
+		} else {
+			add_assoc_null(zinfo, param->key);
+		}
+		param++;
+	}
+
+	return zinfo;
+}
+/* }}} */
 
 /* {{{ clm_process() */
 static int clm_process(gdImagePtr im, clmandelbrot_t *ctx TSRMLS_DC)
