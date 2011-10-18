@@ -320,7 +320,7 @@ static PHP_FUNCTION(clmandelbrot)
 			php_error_docref(NULL TSRMLS_CC, E_WARNING,
 			                 "cannot allocate memory");
 		} else {
-			if (clm_process(im, &ctx) == SUCCESS) {
+			if (clm_process(im, &ctx TSRMLS_CC) == SUCCESS) {
 				RETVAL_ZVAL(zim, 1, 0);
 			}
 		}
