@@ -151,9 +151,9 @@ static const device_info_param_t device_info_list[] = {
 	{ "version",                       CL_DEVICE_VERSION,                       PARAM_TYPE_STRING    },
 	{ "extensions",                    CL_DEVICE_EXTENSIONS,                    PARAM_TYPE_STRING    },
 	{ "platform",                      CL_DEVICE_PLATFORM,                      PARAM_TYPE_PLATFORM  },
- 	{ "double_fp_config",              CL_DEVICE_DOUBLE_FP_CONFIG,              PARAM_TYPE_BITFIELD  },
- 	{ "half_fp_config",                CL_DEVICE_HALF_FP_CONFIG,                PARAM_TYPE_BITFIELD  },
-#ifdef CL_DEVICE_HOST_UNIFIED_MEMORY /* OpenCL 1.1 */
+	{ "double_fp_config",              CL_DEVICE_DOUBLE_FP_CONFIG,              PARAM_TYPE_BITFIELD  },
+#ifdef CL_DEVICE_HALF_FP_CONFIG /* OpenCL 1.1 */
+	{ "half_fp_config",                CL_DEVICE_HALF_FP_CONFIG,                PARAM_TYPE_BITFIELD  },
 	{ "host_unified_memory",           CL_DEVICE_HOST_UNIFIED_MEMORY,           PARAM_TYPE_BOOL      },
 	{ "opencl_c_version",              CL_DEVICE_OPENCL_C_VERSION,              PARAM_TYPE_STRING    },
 #endif
@@ -580,7 +580,7 @@ static int clm_check_device(clmandelbrot_t *ctx TSRMLS_DC)
 	cl_bool available = 0;
 
 	if (ctx->deviceId >= ctx->deviceCount) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "device #%u is not supported", ctx->deviceId);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "device #%u does not exist", ctx->deviceId);
 		return FAILURE;
 	}
 
